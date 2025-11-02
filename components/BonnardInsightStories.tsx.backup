@@ -1,0 +1,1374 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { Card, CardContent, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Play, Pause, Share2, CheckCircle, X, Mail, MessageSquare, Clock, User, RefreshCw, TrendingUp, TrendingDown, AlertTriangle, DollarSign, Users, Target, Zap, Shield, Globe, Activity } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Area,
+  AreaChart,
+  CartesianGrid,
+} from "recharts";
+import { faker } from '@faker-js/faker';
+
+interface Metric {
+  label: string;
+  value: string;
+}
+
+interface DataPoint {
+  day: string;
+  value: number;
+}
+
+interface Schedule {
+  enabled: boolean;
+  frequency: string; // e.g., "Daily at 8:00 AM", "Weekly on Monday"
+  channels: ("slack" | "email")[];
+  slackChannel?: string;
+  emailRecipients?: string[];
+}
+
+interface Insight {
+  id: number;
+  title: string;
+  summary: string;
+  details: string;
+  metrics: Metric[];
+  data: DataPoint[];
+  icon: React.ComponentType<{ className?: string }>;
+  status: string;
+  progress: number;
+  duration: number; // Duration in seconds for this card
+  owner: {
+    name: string;
+    avatar?: string;
+    email?: string;
+  };
+  schedule?: Schedule;
+  lastUpdated: string; // ISO date string
+  timesPlayed: number;
+}
+
+interface Chapter {
+  id: string;
+  name: string;
+  icon: React.ComponentType<{ className?: string }>;
+  storyIds: number[];
+}
+
+// Helper function to generate mock chart data
+const generateMockData = (points: number, trend: 'up' | 'down' | 'stable' | 'volatile' = 'up') => {
+  faker.seed(Math.random() * 10000);
+  const data: DataPoint[] = [];
+  let baseValue = faker.number.int({ min: 20, max: 80 });
+
+  const labels = ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5', 'Week 6'];
+  const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+  const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  const labelSet = points <= 5 ? monthLabels : points <= 7 ? dayLabels : labels;
+
+  for (let i = 0; i < points; i++) {
+    let value = baseValue;
+
+    if (trend === 'up') {
+      value += i * faker.number.int({ min: 2, max: 8 }) + faker.number.int({ min: -3, max: 3 });
+    } else if (trend === 'down') {
+      value -= i * faker.number.int({ min: 2, max: 8 }) + faker.number.int({ min: -3, max: 3 });
+    } else if (trend === 'volatile') {
+      value += faker.number.int({ min: -15, max: 15 });
+    } else {
+      value += faker.number.int({ min: -2, max: 2 });
+    }
+
+    data.push({
+      day: labelSet[i] || `Point ${i + 1}`,
+      value: Math.max(5, Math.min(100, value))
+    });
+
+    baseValue = value;
+  }
+
+  return data;
+};
+
+export default function BonnardInsightStories() {
+  const [selectedInsight, setSelectedInsight] = useState<Insight | null>(null);
+  const [isGlobalPlaying, setIsGlobalPlaying] = useState(false);
+  const [currentPlayingId, setCurrentPlayingId] = useState<number | null>(null);
+  const [cardProgress, setCardProgress] = useState<{ [key: number]: number }>({});
+  const [timeRemaining, setTimeRemaining] = useState<number>(0);
+  const [showCopiedToast, setShowCopiedToast] = useState(false);
+  const [elapsedTime, setElapsedTime] = useState<number>(0);
+  const [selectedChapter, setSelectedChapter] = useState<string>("revenue-growth");
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
+
+  const insights: Insight[] = [
+    {
+      id: 1,
+      title: "Usage Forecast",
+      summary: "On track to spend ~124 credits (62% of limit). Current daily burn of 3.87 credits remains stable with 38% headroom remaining. Usage patterns show consistent workflows with no concerning spikes over the past two weeks.",
+      details:
+        "If Erblotse maintains their current 3.87 credits/day average for a full 31-day month:\n\n• Monthly projection: 120 credits (3.87 × 31 days)\n• Plan utilization: 60% of their 200-credit Starter limit\n• Buffer remaining: 80 credits unused (40% headroom)\n• Status: Comfortably safe - well within their plan limits\n\nKey insight: Even at their current usage rate, they'd consume less than two-thirds of their monthly allowance, leaving substantial room for occasional spikes or growth without hitting overages.\n\nUsage has been remarkably stable over the past two weeks, fluctuating between 3.5-4.0 credits daily. This consistency suggests predictable workflows with no concerning anomalies. The 38% buffer provides a healthy cushion for experimentation with new features or scaling team activities.",
+      metrics: [
+        { label: "Daily average", value: "3.87 credits/day" },
+        { label: "Monthly projection", value: "120 credits (60%)" },
+        { label: "Buffer remaining", value: "80 credits (40%)" },
+        { label: "Trend", value: "Stable, no spikes" }
+      ],
+      data: generateMockData(4, 'up'),
+      icon: CheckCircle,
+      status: "Within limits",
+      progress: 62,
+      duration: 8,
+      owner: {
+        name: "Sarah Chen",
+        email: "sarah@company.com"
+      },
+      schedule: {
+        enabled: true,
+        frequency: "Daily at 9:00 AM",
+        channels: ["slack", "email"],
+        slackChannel: "#finance-team",
+        emailRecipients: ["finance-team@company.com"]
+      },
+      lastUpdated: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
+      timesPlayed: 1247
+    },
+    {
+      id: 2,
+      title: "Team Activity Overview",
+      summary: "Team usage up 19% this week with 188 total workflow runs. The Customer Signals Digest accounts for 34% of activity. Julia and Max lead engagement, with Wednesday showing peak activity at 42 runs. Automation triggers now represent 67% of activity.",
+      details:
+        "Looking at this week's activity breakdown:\n\n• Total workflow runs: 188 (up from 158 last week)\n• Weekly growth: +19% week-over-week\n• Peak activity: Wednesday at 42 runs\n• Most engaged: Julia (24 runs) and Max (22 runs)\n\nWhat's driving the increase? The Customer Signals Digest workflow is seeing heavy adoption, accounting for 34% of all runs. This automated report pulls key metrics from your CRM and Slack channels, then summarizes trends every morning.\n\nActivity patterns show healthy usage across all weekdays, with a slight mid-week peak. No concerning drops or irregular spikes—just steady, organic growth as more team members discover and rely on automated workflows.\n\nNotable trend: Automation triggers (scheduled runs) now represent 67% of activity, up from 52% last month. This shift toward scheduled automation vs. manual triggers suggests the team is building sustainable data habits.",
+      metrics: [
+        { label: "Total runs", value: "188 (+19% WoW)" },
+        { label: "Top contributors", value: "Julia (24), Max (22)" },
+        { label: "Peak day", value: "Wednesday (42 runs)" },
+        { label: "Top workflow", value: "Customer Signals (34%)" }
+      ],
+      data: generateMockData(5, 'up'),
+      icon: CheckCircle,
+      status: "Healthy automation",
+      progress: 72,
+      duration: 8,
+      owner: {
+        name: "Max Weber",
+        email: "max@company.com"
+      },
+      schedule: {
+        enabled: true,
+        frequency: "Weekly on Monday at 8:00 AM",
+        channels: ["slack"],
+        slackChannel: "#team-updates"
+      },
+      lastUpdated: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(), // 5 hours ago
+      timesPlayed: 892
+    },
+    {
+      id: 3,
+      title: "Revenue Impact Analysis",
+      summary: "AI-driven features contributed $47K in attributed revenue (23% of total). Lead scoring delivered 320% ROI, helping reps prioritize prospects. Deals using AI closed 12 days faster on average, enabling 2-3 additional deals per quarter.",
+      details:
+        "Breaking down AI's revenue impact this quarter (Q1 2025):\n\n• Total attributed revenue: $47,300\n• Deals influenced: 18 of 78 closed (23%)\n• Total quarterly revenue: $206,000\n• AI contribution rate: 23% of all revenue\n\nWhich AI features drove the most value?\n\n1. Lead scoring (32% of AI-influenced deals) - Helped reps prioritize high-intent prospects, resulting in faster engagement and higher conversion rates\n2. Email sequencing (28%) - Automated follow-ups kept deals moving when reps were focused elsewhere\n3. Meeting summaries (24%) - Post-call action items and insights improved follow-through and deal momentum\n\nVelocity impact: Deals where AI features were actively used closed 12 days faster on average (38 days vs. 50 days). This acceleration compounds over time—if this trend holds, your team could close an additional 2-3 deals per quarter just from velocity gains.\n\nROI spotlight: Lead scoring delivered 320% ROI, meaning every dollar invested returned $3.20 in attributed revenue.",
+      metrics: [
+        { label: "Attributed revenue", value: "$47.3K (23% of total)" },
+        { label: "Influenced deals", value: "18 of 78 closed" },
+        { label: "Avg deal velocity", value: "12 days faster" },
+        { label: "Lead scoring ROI", value: "320%" }
+      ],
+      data: generateMockData(3, 'up'),
+      icon: CheckCircle,
+      status: "High impact",
+      progress: 85,
+      duration: 10,
+      owner: {
+        name: "Julia Martinez",
+        email: "julia@company.com"
+      },
+      schedule: {
+        enabled: true,
+        frequency: "Monthly on 1st at 10:00 AM",
+        channels: ["slack", "email"],
+        slackChannel: "#sales-insights",
+        emailRecipients: ["sales-leadership@company.com"]
+      },
+      lastUpdated: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
+      timesPlayed: 2134
+    },
+    {
+      id: 4,
+      title: "Customer Support Efficiency",
+      summary: "Response times down 34% (4.2 to 2.8 hours) while CSAT scores increased 18% (3.9 to 4.6). Smart routing eliminated 2.3 handoffs per issue. Automated responses handle 42% of Tier-1 queries, freeing agents for complex cases.",
+      details:
+        "Your support team's AI implementation is paying off:\n\n• Response time: Down from 4.2 to 2.8 hours (34% improvement)\n• CSAT score: Up from 3.9 to 4.6 out of 5.0 (18% improvement)\n• First-contact resolution: 67% of tickets routed correctly on first attempt\n• Tier-1 automation: 42% of simple queries fully resolved without human intervention\n\nWhat changed? Smart routing is the MVP here. AI analyzes incoming tickets and matches them to the right specialist based on topic, complexity, and team expertise. This eliminated an average of 2.3 handoffs per complex issue—previously, tickets would bounce between 3-4 people before landing with someone who could actually solve it.\n\nThe automation layer handles common queries like password resets, account questions, and basic troubleshooting. These represented 42% of your Tier-1 volume but consumed disproportionate agent time. Automating them freed your team to focus on complex, high-value interactions.\n\nQuality is improving too: Customers are rating interactions higher despite faster resolution times, suggesting AI is helping agents provide better answers, not just faster ones.",
+      metrics: [
+        { label: "Response time", value: "2.8hrs (↓34%)" },
+        { label: "CSAT score", value: "4.6/5.0 (↑18%)" },
+        { label: "Auto-resolved", value: "42% of Tier-1" },
+        { label: "Routing accuracy", value: "67% first-contact" }
+      ],
+      data: generateMockData(4, 'down'),
+      icon: CheckCircle,
+      status: "Improving",
+      progress: 68,
+      duration: 9,
+      owner: {
+        name: "David Park",
+        email: "david@company.com"
+      },
+      lastUpdated: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
+      timesPlayed: 756
+    },
+    {
+      id: 5,
+      title: "Product Engagement Trends",
+      summary: "Power users up 28% with features per user growing from 4.2 to 5.8. AI search hit 45% adoption in just 14 days—fastest rollout ever. AI users show 23pp higher retention (89% vs 66%) and NPS scores 42 points higher.",
+      details:
+        "Your product engagement is accelerating across the board:\n\n• Power users (5+ features): Up 28% month-over-month\n• Average features per user: 5.8 (up from 4.2 last month)\n• AI search adoption: 45% within 14 days of launch\n• Retention lift for AI users: +23 percentage points (89% vs 66%)\n\nThe AI search feature is your fastest-adopted feature in company history. Within two weeks of launch, 45% of active users had tried it at least once. For context, your previous record holder (collaborative workspaces) took 6 weeks to reach 40% adoption.\n\nWhy the difference? Early users are creating a viral loop—when someone shares an AI search result in a team channel, it demonstrates value and prompts others to try it. This organic discovery beats traditional rollout announcements.\n\nRetention story: Users who activated any AI feature show 23 percentage points higher retention (89% vs 66%). This suggests AI features are creating genuine habit formation, not just novelty-driven usage. These power users are also your strongest advocates—NPS scores are 42 points higher among this segment.",
+      metrics: [
+        { label: "Power users", value: "+28% MoM growth" },
+        { label: "AI search adoption", value: "45% in 14 days" },
+        { label: "Retention lift", value: "+23pp for AI users" },
+        { label: "Features/user", value: "5.8 avg" }
+      ],
+      data: generateMockData(4, 'up'),
+      icon: CheckCircle,
+      status: "Strong growth",
+      progress: 78,
+      duration: 9,
+      owner: {
+        name: "Emma Rodriguez",
+        email: "emma@company.com"
+      },
+      lastUpdated: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(), // 6 hours ago
+      timesPlayed: 1893
+    },
+    {
+      id: 6,
+      title: "Churn Risk Alert",
+      summary: "12 accounts flagged with $186K ARR at risk. 68% churn probability in 60 days without intervention. Accounts show 40%+ usage drops and declining engagement. Proactive outreach reduces churn to 22%. Four priority accounts ($98K) already escalated to Customer Success.",
+      details:
+        "Your predictive churn model flagged 12 accounts showing early warning signs:\n\n• Accounts at risk: 12 (up from 8 last month)\n• Combined ARR value: $186,000\n• Estimated churn probability: 68% within 60 days without intervention\n• Average usage decline: 43% over past 30 days\n\nWhat patterns triggered the alert? These accounts show a combination of:\n\n1. Usage cliff: 40%+ drop in weekly active sessions over the past month\n2. Feature abandonment: Decreased engagement with core features (especially collaborative tools)\n3. Collaboration decay: Reduced team activity—fewer users logging in from these accounts\n4. Support silence: No recent support tickets (often a warning sign, not a positive signal)\n\nHistorical accuracy: When this model flags accounts with these specific patterns, 68% churn within 60 days if no intervention occurs. However, proactive outreach reduces this to just 22%—a significant opportunity to retain revenue.\n\nYour Customer Success team has been automatically notified with recommended action plans for each account, including personalized check-in templates, feature re-onboarding guides, and executive escalation paths where appropriate.\n\nUrgent focus: 4 of these 12 accounts represent $98K ARR (53% of at-risk revenue). Prioritizing these four could preserve the majority of at-risk value.",
+      metrics: [
+        { label: "At-risk accounts", value: "12 flagged" },
+        { label: "ARR at risk", value: "$186K total" },
+        { label: "Churn probability", value: "68% in 60 days" },
+        { label: "Avg usage drop", value: "43% decline" }
+      ],
+      data: generateMockData(4, 'down'),
+      icon: CheckCircle,
+      status: "Action needed",
+      progress: 45,
+      duration: 10,
+      owner: {
+        name: "Michael Torres",
+        email: "michael@company.com"
+      },
+      schedule: {
+        enabled: true,
+        frequency: "Daily at 7:00 AM",
+        channels: ["slack", "email"],
+        slackChannel: "#customer-success",
+        emailRecipients: ["cs-team@company.com", "exec-team@company.com"]
+      },
+      lastUpdated: new Date(Date.now() - 30 * 60 * 1000).toISOString(), // 30 minutes ago
+      timesPlayed: 3421
+    },
+    {
+      id: 7,
+      title: "Marketing Campaign ROI",
+      summary: "Q1 campaigns generated $312K revenue with 4.2x ROI. Email campaigns outperformed social by 67%, while influencer partnerships drove 28% of conversions. Cost per acquisition dropped 31% compared to last quarter.",
+      details: "Breaking down Q1 marketing performance:\n\n• Total revenue attributed: $312,000\n• Marketing spend: $74,000\n• ROI: 4.2x return on investment\n• Cost per acquisition: $89 (down from $129)\n\nChannel performance highlights:\n\n1. Email marketing (43% of revenue) - Personalized sequences drove highest conversion rates\n2. Influencer partnerships (28%) - Micro-influencers delivered best ROI at 6.1x\n3. Social media ads (18%) - LinkedIn outperformed other platforms\n4. Content marketing (11%) - SEO-driven blog posts continue steady growth\n\nThe 31% reduction in CAC came primarily from better audience targeting and improved conversion funnels. Email campaigns using AI-powered subject line optimization saw 2.3x higher open rates.",
+      metrics: [
+        { label: "Campaign ROI", value: "4.2x return" },
+        { label: "Revenue generated", value: "$312K" },
+        { label: "CAC reduction", value: "31% decrease" },
+        { label: "Top channel", value: "Email (43%)" }
+      ],
+      data: generateMockData(5, 'up'),
+      icon: DollarSign,
+      status: "High performance",
+      progress: 88,
+      duration: 9,
+      owner: {
+        name: "Alex Kim",
+        email: "alex@company.com"
+      },
+      schedule: {
+        enabled: true,
+        frequency: "Monthly on 5th at 9:00 AM",
+        channels: ["slack", "email"],
+        slackChannel: "#marketing",
+        emailRecipients: ["marketing-team@company.com"]
+      },
+      lastUpdated: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
+      timesPlayed: 1567
+    },
+    {
+      id: 8,
+      title: "API Performance Monitoring",
+      summary: "Average API response time improved 42% to 127ms. 99.97% uptime maintained across all endpoints. Cache hit rate reached 78%, reducing database load significantly. Three optimization opportunities identified for high-traffic endpoints.",
+      details: "Infrastructure performance metrics for March:\n\n• Average response time: 127ms (down from 219ms)\n• 95th percentile: 312ms\n• 99th percentile: 847ms\n• Uptime: 99.97% (13 minutes downtime)\n• Cache hit rate: 78%\n\nKey improvements implemented:\n\n1. Database query optimization reduced N+1 queries by 94%\n2. Redis caching layer increased hit rate from 62% to 78%\n3. CDN coverage expanded to 12 new regions\n4. Connection pooling improvements reduced connection overhead\n\nThe remaining optimization opportunities are in the user search endpoint (avg 450ms), bulk data export (1.2s), and report generation (890ms). Addressing these could reduce overall API latency by another 20%.",
+      metrics: [
+        { label: "Avg response time", value: "127ms (↓42%)" },
+        { label: "Uptime", value: "99.97%" },
+        { label: "Cache hit rate", value: "78%" },
+        { label: "P95 latency", value: "312ms" }
+      ],
+      data: generateMockData(6, 'down'),
+      icon: Zap,
+      status: "Optimized",
+      progress: 92,
+      duration: 8,
+      owner: {
+        name: "Ryan Foster",
+        email: "ryan@company.com"
+      },
+      lastUpdated: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
+      timesPlayed: 945
+    },
+    {
+      id: 9,
+      title: "Security Vulnerability Assessment",
+      summary: "Monthly security scan identified 3 medium-priority vulnerabilities, all patched within SLA. Zero critical issues detected. SSL certificate renewals automated. Penetration testing scheduled for next week with external auditors.",
+      details: "March security assessment summary:\n\n• Critical vulnerabilities: 0 (target: 0)\n• High priority: 0 (target: < 2)\n• Medium priority: 3 (all patched)\n• Low priority: 7 (scheduled for Q2)\n\nVulnerabilities addressed:\n\n1. Outdated NPM dependencies (9 packages updated)\n2. Session timeout configuration hardened\n3. CORS policy tightened for production API\n\nProactive security measures:\n\n• SSL certificates now auto-renew 30 days before expiration\n• Dependency scanning integrated into CI/CD pipeline\n• Security training completed by 94% of engineering team\n• 2FA adoption increased to 87% of accounts\n\nUpcoming: External penetration test scheduled for April 8-12. Previous test (6 months ago) found zero critical issues.",
+      metrics: [
+        { label: "Critical issues", value: "0 detected" },
+        { label: "Patch time", value: "Within SLA" },
+        { label: "2FA adoption", value: "87% of users" },
+        { label: "Security training", value: "94% complete" }
+      ],
+      data: generateMockData(4, 'stable'),
+      icon: Shield,
+      status: "Secure",
+      progress: 95,
+      duration: 7,
+      owner: {
+        name: "Priya Patel",
+        email: "priya@company.com"
+      },
+      schedule: {
+        enabled: true,
+        frequency: "Monthly on 1st at 8:00 AM",
+        channels: ["slack", "email"],
+        slackChannel: "#security",
+        emailRecipients: ["security-team@company.com", "engineering-leads@company.com"]
+      },
+      lastUpdated: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
+      timesPlayed: 678
+    },
+    {
+      id: 10,
+      title: "Sales Pipeline Health",
+      summary: "Pipeline value grew 23% to $1.2M across 47 active opportunities. Average deal size increased 18% to $25.6K. Win rate holding steady at 34%. Sales cycle shortened by 8 days to 42-day average through better qualification.",
+      details: "Sales pipeline analysis for March:\n\n• Total pipeline value: $1.2M (up from $976K)\n• Active opportunities: 47 deals\n• Average deal size: $25,600 (up 18%)\n• Win rate: 34% (industry benchmark: 28-32%)\n• Average sales cycle: 42 days (down from 50 days)\n\nPipeline breakdown by stage:\n\n1. Discovery: $340K (15 deals)\n2. Demo completed: $425K (18 deals)\n3. Proposal sent: $280K (9 deals)\n4. Negotiation: $155K (5 deals)\n\nThe 8-day reduction in sales cycle came from implementing MEDDIC qualification framework, which helped reps focus on high-intent prospects. Deals that complete discovery calls within 7 days of first contact close at 51% vs 28% for slower-moving prospects.\n\nTop performing rep (Sarah) closed 6 deals this quarter at $178K total value with 45% win rate.",
+      metrics: [
+        { label: "Pipeline value", value: "$1.2M (+23%)" },
+        { label: "Avg deal size", value: "$25.6K (+18%)" },
+        { label: "Win rate", value: "34%" },
+        { label: "Sales cycle", value: "42 days (↓8)" }
+      ],
+      data: generateMockData(5, 'up'),
+      icon: Target,
+      status: "Strong pipeline",
+      progress: 76,
+      duration: 10,
+      owner: {
+        name: "Marcus Johnson",
+        email: "marcus@company.com"
+      },
+      schedule: {
+        enabled: true,
+        frequency: "Weekly on Friday at 4:00 PM",
+        channels: ["slack"],
+        slackChannel: "#sales-team"
+      },
+      lastUpdated: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      timesPlayed: 2341
+    },
+    {
+      id: 11,
+      title: "Employee Satisfaction Survey",
+      summary: "Quarterly engagement score: 8.2/10, up from 7.8 last quarter. 92% participation rate. Work-life balance and career growth rated highest. Remote work flexibility cited as top benefit by 67% of respondents.",
+      details: "Q1 2025 employee engagement results:\n\n• Overall satisfaction: 8.2/10 (up from 7.8)\n• Survey participation: 92% (103 of 112 employees)\n• eNPS score: +42 (considered excellent)\n• Turnover risk: 8% of workforce flagged as flight risk\n\nCategory scores:\n\n1. Work-life balance: 8.7/10 (highest rated)\n2. Career growth: 8.4/10\n3. Management quality: 8.1/10\n4. Compensation: 7.6/10 (opportunity area)\n5. Company culture: 8.5/10\n\nKey insights from open-ended responses:\n\n• 67% cited remote work flexibility as top benefit\n• 54% want more learning & development opportunities\n• 38% expressed interest in equity compensation\n• 23% mentioned workload concerns during product launch\n\nAction items: HR is developing enhanced L&D program and reviewing compensation bands. Mid-year engagement pulse survey scheduled for June.",
+      metrics: [
+        { label: "Engagement score", value: "8.2/10 (↑0.4)" },
+        { label: "Participation", value: "92%" },
+        { label: "eNPS", value: "+42" },
+        { label: "Flight risk", value: "8% flagged" }
+      ],
+      data: generateMockData(4, 'up'),
+      icon: Users,
+      status: "Positive trend",
+      progress: 82,
+      duration: 9,
+      owner: {
+        name: "Sofia Martinez",
+        email: "sofia@company.com"
+      },
+      schedule: {
+        enabled: true,
+        frequency: "Quarterly on 15th at 10:00 AM",
+        channels: ["email"],
+        emailRecipients: ["leadership@company.com", "hr@company.com"]
+      },
+      lastUpdated: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      timesPlayed: 1123
+    },
+    {
+      id: 12,
+      title: "Website Traffic Analysis",
+      summary: "Monthly unique visitors reached 142K, up 34% YoY. Organic search traffic grew 41% following SEO improvements. Bounce rate dropped to 38%. Mobile traffic now represents 61% of all sessions, up from 54% last quarter.",
+      details: "March website analytics overview:\n\n• Unique visitors: 142,000 (up 34% YoY)\n• Total sessions: 284,000\n• Pageviews: 512,000\n• Avg session duration: 3m 24s\n• Bounce rate: 38% (down from 44%)\n\nTraffic sources:\n\n1. Organic search: 48% (+41% growth)\n2. Direct: 24%\n3. Social media: 16%\n4. Paid ads: 8%\n5. Referrals: 4%\n\nThe 41% organic search growth came from content marketing efforts and technical SEO improvements. Published 18 blog posts targeting long-tail keywords, resulting in 12 first-page Google rankings.\n\nMobile optimization efforts paying off—mobile conversion rate improved from 1.8% to 2.4%. Mobile bounce rate decreased 9 percentage points.\n\nTop performing pages: Product tour (24K views), Pricing (18K), Case studies (14K).",
+      metrics: [
+        { label: "Unique visitors", value: "142K (+34%)" },
+        { label: "Organic growth", value: "+41% YoY" },
+        { label: "Bounce rate", value: "38% (↓6pp)" },
+        { label: "Mobile traffic", value: "61% of sessions" }
+      ],
+      data: generateMockData(6, 'up'),
+      icon: Globe,
+      status: "Growing",
+      progress: 71,
+      duration: 8,
+      owner: {
+        name: "Taylor Brooks",
+        email: "taylor@company.com"
+      },
+      lastUpdated: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
+      timesPlayed: 1876
+    },
+    {
+      id: 13,
+      title: "Product Roadmap Progress",
+      summary: "Q1 delivered 8 of 10 planned features on time. Two features moved to Q2 due to scope expansion. Customer-requested features account for 62% of recent releases. Engineering velocity increased 15% with new sprint structure.",
+      details: "Q1 2025 product development summary:\n\n• Features shipped: 8 (target: 10)\n• On-time delivery: 80%\n• Customer-requested: 62% of features\n• Engineering velocity: +15% improvement\n• Bug backlog: Reduced by 28%\n\nMajor releases:\n\n1. Advanced filtering (Most requested feature—478 votes)\n2. Bulk operations (Reduced workflow time by 40%)\n3. Mobile app offline mode\n4. Custom dashboard builder\n5. SSO with Okta/Azure AD\n6. Webhooks API\n7. Export to Excel with formatting\n8. In-app notifications system\n\nDeferred to Q2:\n• Advanced analytics module (scope expanded after discovery)\n• Multi-language support (resource constraints)\n\nCustomer feedback on new features: 4.6/5.0 average rating. Advanced filtering already used by 67% of active customers within first month of launch.",
+      metrics: [
+        { label: "Features delivered", value: "8 of 10 (80%)" },
+        { label: "Customer-driven", value: "62% of features" },
+        { label: "Velocity increase", value: "+15%" },
+        { label: "Feature rating", value: "4.6/5.0" }
+      ],
+      data: generateMockData(5, 'up'),
+      icon: Activity,
+      status: "On track",
+      progress: 80,
+      duration: 10,
+      owner: {
+        name: "Devon Lee",
+        email: "devon@company.com"
+      },
+      schedule: {
+        enabled: true,
+        frequency: "Bi-weekly on Monday at 9:00 AM",
+        channels: ["slack"],
+        slackChannel: "#product-updates"
+      },
+      lastUpdated: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
+      timesPlayed: 1654
+    },
+    {
+      id: 14,
+      title: "Content Engagement Metrics",
+      summary: "Blog posts generated 89K views this month with 4.2min avg read time. Newsletter open rate at 38%, above industry average. Video content engagement up 156%—tutorials most popular with 12K views. Webinar registrations grew 45%.",
+      details: "March content performance breakdown:\n\n• Blog pageviews: 89,000 (+27% MoM)\n• Average read time: 4m 12s\n• Newsletter open rate: 38% (industry avg: 21%)\n• Video views: 24,000 (+156% growth)\n• Webinar registrations: 342 (+45%)\n\nTop performing content:\n\n1. \"How to Automate Customer Onboarding\" - 8.2K views, 6m 34s avg time\n2. \"2025 SaaS Metrics Benchmark Report\" - 6.7K views, 487 downloads\n3. Tutorial video series - 12K total views across 6 videos\n4. Monthly product webinar - 342 registrations, 68% attendance\n\nContent that drives conversions:\n• Case studies: 3.2% conversion to demo request\n• Product comparison pages: 4.8% conversion\n• ROI calculator: 6.1% conversion (highest converter)\n\nNewsletter now reaches 12,400 subscribers (up 18% this quarter). Video content strategy is clearly working—viewers who watch tutorials are 2.3x more likely to convert to paid customers.",
+      metrics: [
+        { label: "Blog views", value: "89K (+27%)" },
+        { label: "Newsletter open", value: "38% (industry: 21%)" },
+        { label: "Video growth", value: "+156%" },
+        { label: "Webinar signups", value: "342 (+45%)" }
+      ],
+      data: generateMockData(6, 'up'),
+      icon: TrendingUp,
+      status: "Engaging",
+      progress: 85,
+      duration: 8,
+      owner: {
+        name: "Casey Turner",
+        email: "casey@company.com"
+      },
+      lastUpdated: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString(),
+      timesPlayed: 2098
+    },
+    {
+      id: 15,
+      title: "Infrastructure Cost Optimization",
+      summary: "Cloud spending reduced 28% through rightsizing and reserved instances. Monthly costs down from $23K to $16.5K without performance impact. Auto-scaling policies prevented $4.2K in waste. Identified $3K additional monthly savings opportunity.",
+      details: "March infrastructure cost analysis:\n\n• Previous monthly spend: $23,000\n• Current monthly spend: $16,500\n• Savings: $6,500 (28% reduction)\n• Annual projected savings: $78,000\n\nCost reduction initiatives:\n\n1. Reserved instances: $3,200/month saved (purchased 1-year commitments)\n2. Right-sizing over-provisioned servers: $2,100/month saved\n3. Storage optimization: $800/month saved (lifecycle policies, compression)\n4. Unused resources cleanup: $400/month saved\n\nAuto-scaling improvements prevented $4,200 in unnecessary capacity costs during low-traffic periods. Average CPU utilization improved from 34% to 58%, indicating better resource efficiency.\n\nFuture optimization opportunities:\n• Move dev/staging to spot instances ($1,800/month potential savings)\n• Implement CDN for static assets ($800/month)\n• Database query optimization to reduce compute ($400/month)\n\nNo performance degradation observed—average response times actually improved 12ms due to better resource allocation.",
+      metrics: [
+        { label: "Cost reduction", value: "28% ($6.5K/mo)" },
+        { label: "Annual savings", value: "$78K projected" },
+        { label: "Waste prevented", value: "$4.2K via auto-scale" },
+        { label: "Performance impact", value: "None (improved 12ms)" }
+      ],
+      data: generateMockData(5, 'down'),
+      icon: DollarSign,
+      status: "Optimized",
+      progress: 88,
+      duration: 9,
+      owner: {
+        name: "Jordan Hayes",
+        email: "jordan@company.com"
+      },
+      schedule: {
+        enabled: true,
+        frequency: "Monthly on 10th at 11:00 AM",
+        channels: ["email"],
+        emailRecipients: ["engineering@company.com", "finance@company.com"]
+      },
+      lastUpdated: new Date(Date.now() - 18 * 60 * 60 * 1000).toISOString(),
+      timesPlayed: 982
+    },
+    {
+      id: 16,
+      title: "Customer Onboarding Success",
+      summary: "New customer activation rate hit 78%, up from 64% last quarter. Time-to-value reduced to 4.2 days with guided onboarding. 89% of activated users remain active after 30 days. Onboarding completion emails drive 34% higher engagement.",
+      details: "Q1 onboarding performance analysis:\n\n• Activation rate: 78% (up from 64%)\n• Time to first value: 4.2 days (down from 7.1 days)\n• 30-day retention: 89% of activated users\n• Onboarding completion: 71% finish all steps\n\nKey improvements implemented:\n\n1. Interactive product tour with progress tracking\n2. Personalized onboarding based on use case selection\n3. Automated email sequence with tips and resources\n4. In-app tooltips for complex features\n5. Quick-start templates for common workflows\n\nImpact by improvement:\n• Product tour increased activation by 18 percentage points\n• Use case personalization improved completion rates 23%\n• Email sequence drives 34% higher feature adoption\n• Templates reduced time-to-first-workflow from 6.3 to 2.1 days\n\nUsers who complete onboarding have 3.2x higher lifetime value and 2.8x lower churn than those who don't. Focus for Q2: Improve mobile onboarding (currently 58% completion vs 71% on desktop).",
+      metrics: [
+        { label: "Activation rate", value: "78% (↑14pp)" },
+        { label: "Time to value", value: "4.2 days (↓2.9)" },
+        { label: "30-day retention", value: "89%" },
+        { label: "Completion rate", value: "71% finish" }
+      ],
+      data: generateMockData(4, 'up'),
+      icon: CheckCircle,
+      status: "Improving",
+      progress: 78,
+      duration: 9,
+      owner: {
+        name: "Morgan Davis",
+        email: "morgan@company.com"
+      },
+      lastUpdated: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+      timesPlayed: 1456
+    },
+    {
+      id: 17,
+      title: "Mobile App Performance",
+      summary: "App Store rating improved to 4.7 stars from 4.3. Crash rate reduced 76% to 0.31%. Average session length up 42% to 8m 15s. Push notification opt-in rate at 64%, driving 3x higher retention among subscribers.",
+      details: "March mobile app metrics:\n\n• App Store rating: 4.7/5.0 (was 4.3)\n• Google Play rating: 4.6/5.0 (was 4.2)\n• Crash rate: 0.31% (down from 1.29%)\n• MAU: 34,000 (up 28%)\n• Average session: 8m 15s (up from 5m 48s)\n• Push notification opt-in: 64%\n\nRecent improvements:\n\n1. Stability fixes eliminated top 8 crash causes\n2. UI redesign improved user flows (A/B tested at +31% task completion)\n3. Offline mode reduces friction during poor connectivity\n4. Performance optimization cut load times by 1.8 seconds\n\nThe 76% crash rate reduction came from addressing memory leaks, fixing race conditions, and improving error handling. Most crashes occurred on older Android devices (now resolved).\n\nPush notification insights:\n• Opt-in users have 3.1x higher 90-day retention\n• Engagement notifications (\"Your report is ready\") perform best\n• Promotional messages have 12% lower engagement\n\nQ2 focus: Android tablet optimization (currently 39% crash rate on tablets vs 0.2% on phones).",
+      metrics: [
+        { label: "App rating", value: "4.7★ (was 4.3)" },
+        { label: "Crash rate", value: "0.31% (↓76%)" },
+        { label: "Session length", value: "8m 15s (+42%)" },
+        { label: "Push opt-in", value: "64%" }
+      ],
+      data: generateMockData(6, 'up'),
+      icon: Activity,
+      status: "Excellent",
+      progress: 91,
+      duration: 8,
+      owner: {
+        name: "Riley Cooper",
+        email: "riley@company.com"
+      },
+      schedule: {
+        enabled: true,
+        frequency: "Weekly on Wednesday at 2:00 PM",
+        channels: ["slack"],
+        slackChannel: "#mobile-team"
+      },
+      lastUpdated: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
+      timesPlayed: 3267
+    },
+    {
+      id: 18,
+      title: "Partner Program Growth",
+      summary: "Partner ecosystem expanded to 24 active partners, up from 18 last quarter. Co-selling opportunities generated $87K in referral revenue. Top 3 partners contributed 71% of partner-sourced deals. Average partner deal size 34% larger than direct sales.",
+      details: "Q1 partner program performance:\n\n• Active partners: 24 (up from 18)\n• Referral revenue: $87,000\n• Partner-sourced deals: 14 closed\n• Average partner deal size: $31,200 (vs $23,300 direct)\n• Partner satisfaction score: 8.4/10\n\nTop performing partners:\n\n1. TechSolutions Inc - $28K revenue, 4 deals\n2. Digital Advisors - $23K revenue, 3 deals\n3. CloudExperts - $20K revenue, 3 deals\n\nPartner program benefits:\n• Deals are 34% larger on average (partners target enterprise)\n• Win rate is 42% vs 34% for direct sales\n• Sales cycle is 12% faster (39 days vs 44 days)\n• Customer retention 8pp higher for partner-sourced customers\n\nRecent program enhancements:\n• Partner portal launched with deal registration system\n• Co-marketing fund established ($50K quarterly)\n• Tiered commission structure incentivizes larger deals\n• Quarterly partner summit introduced\n\nQ2 goals: Onboard 8 new partners, launch partner certification program, create 6 co-branded case studies.",
+      metrics: [
+        { label: "Active partners", value: "24 (+6 QoQ)" },
+        { label: "Referral revenue", value: "$87K" },
+        { label: "Avg partner deal", value: "$31.2K (+34%)" },
+        { label: "Partner NPS", value: "8.4/10" }
+      ],
+      data: generateMockData(5, 'up'),
+      icon: Users,
+      status: "Expanding",
+      progress: 73,
+      duration: 10,
+      owner: {
+        name: "Avery Mitchell",
+        email: "avery@company.com"
+      },
+      lastUpdated: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+      timesPlayed: 1789
+    },
+    {
+      id: 19,
+      title: "Competitive Intelligence Update",
+      summary: "Primary competitor raised $45M Series B and launched enterprise tier. Their pricing increased 15-20% across all plans. We maintain 23% price advantage while offering comparable features. Market share in SMB segment grew to 18.7%.",
+      details: "March competitive landscape analysis:\n\n• Competitors tracked: 7 primary, 12 secondary\n• Our market share: 18.7% in SMB segment (up from 17.2%)\n• Price positioning: 23% below primary competitor\n• Feature parity: 94% (up from 89% last quarter)\n\nCompetitor A (primary rival) updates:\n• Raised $45M Series B funding\n• Launched enterprise tier at $899/mo\n• Increased pricing 15-20% across all plans\n• Added 3 features we already have\n• Reported 40% YoY revenue growth\n\nCompetitor B updates:\n• Acquired smaller competitor for $12M\n• Expanded into European market\n• Experiencing integration challenges (per customer feedback)\n• Lost 2 major enterprise customers (confirmed)\n\nOur competitive advantages:\n• Better price-to-value ratio (23% lower pricing)\n• Superior onboarding (78% vs competitor avg 58%)\n• Higher customer satisfaction (NPS +42 vs industry avg +28)\n• Faster feature velocity (8 releases vs competitor avg 4-5 per quarter)\n\nMonitoring: Competitor C is beta-testing AI features similar to our roadmap. Need to accelerate our AI timeline.",
+      metrics: [
+        { label: "Market share", value: "18.7% (+1.5pp)" },
+        { label: "Price advantage", value: "23% lower" },
+        { label: "Feature parity", value: "94%" },
+        { label: "NPS advantage", value: "+14 pts vs avg" }
+      ],
+      data: generateMockData(4, 'stable'),
+      icon: Target,
+      status: "Competitive",
+      progress: 82,
+      duration: 9,
+      owner: {
+        name: "Quinn Anderson",
+        email: "quinn@company.com"
+      },
+      schedule: {
+        enabled: true,
+        frequency: "Monthly on 20th at 3:00 PM",
+        channels: ["email"],
+        emailRecipients: ["leadership@company.com", "product@company.com", "sales@company.com"]
+      },
+      lastUpdated: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+      timesPlayed: 1432
+    },
+    {
+      id: 20,
+      title: "Customer Health Scoring",
+      summary: "Health score model now tracking 78 active accounts with 89% prediction accuracy. 12 accounts flagged for intervention, 8 already contacted. Healthy accounts (score >80) have 96% renewal rate. Model identified 4 expansion opportunities worth $145K ARR.",
+      details: "Customer health scoring system performance:\n\n• Accounts monitored: 78 active customers\n• Prediction accuracy: 89% (validated against historical churn)\n• Health score distribution:\n  - Excellent (90-100): 24 accounts (31%)\n  - Good (75-89): 31 accounts (40%)\n  - At-risk (60-74): 11 accounts (14%)\n  - Critical (<60): 12 accounts (15%)\n\nHealth score factors (weighted):\n• Product usage frequency (30%)\n• Feature adoption breadth (25%)\n• Support ticket volume/sentiment (20%)\n• Payment history (15%)\n• User engagement trends (10%)\n\nIntervention results:\n• 8 of 12 critical accounts contacted by CSM\n• 5 scheduled business reviews\n• 2 escalated to executive engagement\n• 1 already showing improved health score (+18 points)\n\nExpansion opportunities identified:\n• 4 high-health accounts showing usage patterns indicating need for higher tier\n• Combined upsell potential: $145K ARR\n• All 4 contacted, 2 already in active sales conversations\n\nAccounts with excellent health scores (>90) have 96% renewal rate and 2.8x higher LTV than average customers.",
+      metrics: [
+        { label: "Prediction accuracy", value: "89%" },
+        { label: "At-risk accounts", value: "12 flagged (15%)" },
+        { label: "High-health renewal", value: "96%" },
+        { label: "Expansion opps", value: "$145K ARR" }
+      ],
+      data: generateMockData(5, 'stable'),
+      icon: Activity,
+      status: "Monitoring",
+      progress: 84,
+      duration: 9,
+      owner: {
+        name: "Blake Peterson",
+        email: "blake@company.com"
+      },
+      lastUpdated: new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString(),
+      timesPlayed: 1234
+    },
+    {
+      id: 21,
+      title: "Referral Program Performance",
+      summary: "Referral program generated 23 new signups this month, 14 converted to paid (61%). Average referral customer LTV 47% higher than other channels. Top referrer brought 7 customers. Referral rewards cost 4.2x less than paid acquisition.",
+      details: "March referral program metrics:\n\n• Referral signups: 23 new customers\n• Conversion to paid: 14 (61% conversion rate)\n• Referral revenue: $37,800 MRR\n• Average LTV: $12,400 (vs $8,400 other channels)\n• Cost per acquisition: $21 (vs $89 blended CAC)\n\nTop referrers this month:\n\n1. Enterprise customer \"TechCorp\" - 7 referrals, 5 converted\n2. Power user \"Jamie S.\" - 4 referrals, 3 converted\n3. Small business \"DesignStudio\" - 3 referrals, 2 converted\n\nProgram economics:\n• Referral reward: $50 credit per successful referral\n• Cost per acquisition: $21 (including credits + program overhead)\n• Blended CAC (other channels): $89\n• Savings: 4.2x more efficient than paid acquisition\n\nWhy referrals perform better:\n• Pre-qualified by trusted source (61% conversion vs 32% average)\n• Better product-market fit (referrer knows use case)\n• Higher initial engagement (2.3x more likely to complete onboarding)\n• Stronger retention (92% vs 74% after 12 months)\n\nQ2 initiatives: Double referral reward to $100 for trial, add gamification leaderboard, create shareable success stories.",
+      metrics: [
+        { label: "New signups", value: "23 referrals" },
+        { label: "Conversion rate", value: "61% to paid" },
+        { label: "LTV advantage", value: "+47% higher" },
+        { label: "CAC efficiency", value: "4.2x cheaper" }
+      ],
+      data: generateMockData(6, 'up'),
+      icon: Users,
+      status: "Effective",
+      progress: 79,
+      duration: 8,
+      owner: {
+        name: "Reese Campbell",
+        email: "reese@company.com"
+      },
+      schedule: {
+        enabled: true,
+        frequency: "Monthly on 15th at 10:00 AM",
+        channels: ["slack"],
+        slackChannel: "#growth-team"
+      },
+      lastUpdated: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      timesPlayed: 2567
+    },
+    {
+      id: 22,
+      title: "Email Deliverability Health",
+      summary: "Email deliverability rate at 98.2%, above industry standard. Bounce rate reduced to 1.8%. Spam complaint rate 0.04% (well below 0.1% threshold). Sender reputation score excellent across all major providers. Implemented DMARC for enhanced security.",
+      details: "March email infrastructure health report:\n\n• Deliverability rate: 98.2% (industry avg: 85-95%)\n• Bounce rate: 1.8% (hard: 0.6%, soft: 1.2%)\n• Spam complaints: 0.04% (threshold: 0.1%)\n• Open rate: 32% (industry avg: 21%)\n• Click rate: 4.8% (industry avg: 2.6%)\n\nSender reputation scores:\n• Gmail/Google Workspace: Excellent\n• Microsoft/Outlook: Excellent  \n• Yahoo: Good\n• Apple Mail: Excellent\n\nRecent improvements:\n• DMARC policy implemented (p=quarantine)\n• SPF and DKIM fully configured\n• List hygiene automated (removes hard bounces immediately)\n• Engagement-based segmentation reduces complaints\n• Double opt-in for new subscribers\n\nList quality metrics:\n• Active subscribers: 12,400\n• 90-day engagement rate: 68%\n• Unsubscribe rate: 0.2% per send\n• Invalid email removal: 127 cleaned this month\n\nBest practices maintained:\n• Regular list cleaning (inactive >180 days removed)\n• Re-engagement campaigns for dormant subscribers\n• Clear unsubscribe links in every email\n• Consistent sending schedule and volume",
+      metrics: [
+        { label: "Deliverability", value: "98.2%" },
+        { label: "Bounce rate", value: "1.8%" },
+        { label: "Spam rate", value: "0.04%" },
+        { label: "Sender score", value: "Excellent" }
+      ],
+      data: generateMockData(5, 'stable'),
+      icon: Mail,
+      status: "Healthy",
+      progress: 93,
+      duration: 7,
+      owner: {
+        name: "Cameron Wright",
+        email: "cameron@company.com"
+      },
+      lastUpdated: new Date(Date.now() - 15 * 60 * 60 * 1000).toISOString(),
+      timesPlayed: 876
+    },
+    {
+      id: 23,
+      title: "Feature Adoption Analysis",
+      summary: "New dashboard feature reached 54% adoption in 3 weeks. Power users average 8.2 features used regularly. Export functionality most popular (89% of users). Advanced filters underutilized at 23%—scheduling training webinar to improve adoption.",
+      details: "Feature adoption breakdown (March):\n\n• New dashboard: 54% adoption (launched 3 weeks ago)\n• Total active features: 18 available\n• Average features per user: 5.3\n• Power users (5+ features): 41% of userbase\n\nFeature usage ranking:\n\n1. Export to Excel: 89% of users\n2. Custom views: 76%\n3. Quick actions: 71%\n4. Dashboard: 54% (new)\n5. Bulk operations: 48%\n6. Saved filters: 42%\n7. Templates: 38%\n8. Integrations: 34%\n9. API access: 27%\n10. Advanced filters: 23% (underutilized)\n\nAdoption insights:\n• Features discovered via onboarding have 3.4x higher adoption\n• In-app tooltips increased feature discovery by 28%\n• Video tutorials drive 2.1x higher sustained usage\n• Power users (using 5+ features) have 4.2x lower churn\n\nLow adoption opportunities:\n• Advanced filters (23%) - Creating walkthrough tutorial series\n• API access (27%) - Developing use case documentation\n• Webhooks (18%) - Building integration templates\n\nQ2 goal: Increase average features per user from 5.3 to 6.5 through better discovery and education.",
+      metrics: [
+        { label: "New dashboard", value: "54% adoption" },
+        { label: "Avg features/user", value: "5.3 features" },
+        { label: "Power users", value: "41% (5+ features)" },
+        { label: "Most used", value: "Export (89%)" }
+      ],
+      data: generateMockData(6, 'up'),
+      icon: TrendingUp,
+      status: "Growing",
+      progress: 68,
+      duration: 9,
+      owner: {
+        name: "Sage Robinson",
+        email: "sage@company.com"
+      },
+      schedule: {
+        enabled: true,
+        frequency: "Bi-weekly on Thursday at 11:00 AM",
+        channels: ["slack"],
+        slackChannel: "#product-analytics"
+      },
+      lastUpdated: new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString(),
+      timesPlayed: 1987
+    },
+    {
+      id: 24,
+      title: "Social Media Engagement",
+      summary: "LinkedIn followers grew 31% to 8,400. Average engagement rate 4.2% (industry avg 2%). Twitter impressions up 67% following content strategy shift. Company mentions increased 89%, sentiment 84% positive. Influencer partnership reached 47K people.",
+      details: "March social media performance:\n\n• LinkedIn followers: 8,400 (+31% growth)\n• LinkedIn engagement rate: 4.2% (industry: 2%)\n• Twitter followers: 12,300 (+18%)\n• Twitter impressions: 487K (+67%)\n• Instagram followers: 3,200 (+24%)\n\nTop performing content:\n\n1. Customer success story video - 34K views, 892 engagements\n2. Product demo GIF - 28K views, 634 engagements  \n3. Industry report infographic - 19K views, 412 shares\n4. Behind-the-scenes team photo - 15K views, 589 engagements\n5. Founder AMA thread - 12K views, 287 replies\n\nContent strategy changes:\n• Shifted from product-only to 60% educational, 30% company culture, 10% product\n• Increased video content from 10% to 35% of posts\n• Posting frequency: 5x per week (up from 3x)\n• Engaging with industry conversations daily\n\nBrand mentions:\n• Total mentions: 342 (+89% MoM)\n• Sentiment: 84% positive, 13% neutral, 3% negative\n• Share of voice in category: 12% (up from 8%)\n\nInfluencer partnership:\n• Micro-influencer campaign reached 47K people\n• Generated 1,240 website visits\n• 23 demo requests directly attributed\n• Cost: $2,400 (significantly cheaper than paid ads)",
+      metrics: [
+        { label: "LinkedIn growth", value: "8.4K (+31%)" },
+        { label: "Engagement rate", value: "4.2% (vs 2% avg)" },
+        { label: "Brand mentions", value: "342 (+89%)" },
+        { label: "Sentiment", value: "84% positive" }
+      ],
+      data: generateMockData(6, 'up'),
+      icon: Globe,
+      status: "Viral growth",
+      progress: 76,
+      duration: 8,
+      owner: {
+        name: "River Santos",
+        email: "river@company.com"
+      },
+      lastUpdated: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+      timesPlayed: 2876
+    },
+    {
+      id: 25,
+      title: "Database Performance Tuning",
+      summary: "Database query optimization reduced avg response time 58% to 43ms. Top 10 slowest queries all optimized. Index coverage increased to 94%. Storage costs reduced 22% through data archiving. Zero slow query alerts in past 30 days.",
+      details: "March database optimization results:\n\n• Average query time: 43ms (down from 102ms)\n• P95 query time: 187ms (down from 445ms)\n• P99 query time: 312ms (down from 892ms)\n• Index coverage: 94%\n• Slow query count: 0 (was 23-45 per day)\n• Storage costs: $4,200/mo (down from $5,400)\n\nOptimizations implemented:\n\n1. Added compound indexes on 8 frequently queried tables\n2. Rewrote 15 N+1 query patterns to use joins\n3. Implemented query result caching (Redis)\n4. Partitioned large tables by date\n5. Archived historical data (>2 years old) to cold storage\n6. Optimized full-text search queries\n\nSpecific improvements:\n• User search query: 890ms → 67ms (93% faster)\n• Report generation: 4.2s → 680ms (84% faster)\n• Dashboard load: 1.8s → 320ms (82% faster)\n• Bulk export: 12.4s → 3.1s (75% faster)\n\nStorage optimization:\n• Archived 480GB to S3 Glacier ($18/mo vs $240/mo)\n• Compressed large JSON columns saved 18GB\n• Removed duplicate data from legacy migrations\n\nDatabase health: 100% uptime, zero data loss events, automated backup retention at 30 days with point-in-time recovery.",
+      metrics: [
+        { label: "Query time", value: "43ms (↓58%)" },
+        { label: "P99 latency", value: "312ms (↓65%)" },
+        { label: "Storage costs", value: "↓22% ($1.2K/mo)" },
+        { label: "Slow queries", value: "0 in 30 days" }
+      ],
+      data: generateMockData(5, 'down'),
+      icon: Zap,
+      status: "Optimized",
+      progress: 94,
+      duration: 9,
+      owner: {
+        name: "Phoenix Gray",
+        email: "phoenix@company.com"
+      },
+      schedule: {
+        enabled: true,
+        frequency: "Monthly on 25th at 9:00 AM",
+        channels: ["slack"],
+        slackChannel: "#engineering"
+      },
+      lastUpdated: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
+      timesPlayed: 1098
+    },
+    {
+      id: 26,
+      title: "Compliance & Audit Readiness",
+      summary: "SOC 2 Type II audit preparation 87% complete. All 34 control requirements documented. GDPR compliance maintained across all systems. Annual security training completed by 98% of staff. Third-party vendor assessment identified 2 low-risk items.",
+      details: "March compliance status update:\n\n• SOC 2 Type II preparation: 87% complete\n• Audit scheduled: May 15-19, 2025\n• Control requirements: 34 of 34 documented\n• Evidence collection: 89% complete\n• Security training: 98% of staff certified\n\nCompliance framework status:\n\n1. SOC 2 Type II: In progress (audit in 6 weeks)\n2. GDPR: Fully compliant, quarterly reviews\n3. CCPA: Compliant, updated privacy policy\n4. HIPAA: N/A (not handling PHI)\n5. ISO 27001: Planned for Q4 2025\n\nRecent compliance activities:\n• Completed all employee security awareness training\n• Updated data processing agreements with 18 vendors\n• Implemented automated compliance monitoring\n• Conducted business continuity drill (successful)\n• Reviewed and updated incident response plan\n\nThird-party risk assessment:\n• Vendors evaluated: 23 critical suppliers\n• High risk: 0\n• Medium risk: 0  \n• Low risk: 2 (both remediation plans accepted)\n\nData protection metrics:\n• Data subject requests: 4 (all completed within SLA)\n• Privacy incidents: 0\n• Data retention policy compliance: 100%\n• Encryption at rest: 100% of sensitive data\n• Encryption in transit: 100% (TLS 1.3)",
+      metrics: [
+        { label: "SOC 2 progress", value: "87% complete" },
+        { label: "Training", value: "98% certified" },
+        { label: "Vendor risk", value: "2 low-risk items" },
+        { label: "Privacy incidents", value: "0 reported" }
+      ],
+      data: generateMockData(4, 'up'),
+      icon: Shield,
+      status: "Audit-ready",
+      progress: 87,
+      duration: 10,
+      owner: {
+        name: "Skylar Reed",
+        email: "skylar@company.com"
+      },
+      schedule: {
+        enabled: true,
+        frequency: "Monthly on 30th at 2:00 PM",
+        channels: ["email"],
+        emailRecipients: ["leadership@company.com", "legal@company.com", "security@company.com"]
+      },
+      lastUpdated: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(),
+      timesPlayed: 654
+    }
+  ];
+
+  // Define chapters
+  const chapters: Chapter[] = [
+    {
+      id: "revenue-growth",
+      name: "Revenue & Growth",
+      icon: DollarSign,
+      storyIds: [7, 3, 10, 21, 18] // Marketing ROI, Revenue Impact, Sales Pipeline, Referral Program, Partner Program
+    },
+    {
+      id: "product-engineering",
+      name: "Product & Engineering",
+      icon: Zap,
+      storyIds: [13, 23, 5, 8, 25, 17] // Roadmap, Feature Adoption, Product Engagement, API Performance, Database Tuning, Mobile App
+    },
+    {
+      id: "customer-success",
+      name: "Customer Success",
+      icon: Users,
+      storyIds: [16, 20, 6, 4] // Onboarding, Health Scoring, Churn Risk, Support Efficiency
+    },
+    {
+      id: "marketing-content",
+      name: "Marketing & Content",
+      icon: Globe,
+      storyIds: [12, 14, 24, 22] // Website Traffic, Content Engagement, Social Media, Email Deliverability
+    },
+    {
+      id: "operations-infrastructure",
+      name: "Operations & Infrastructure",
+      icon: Shield,
+      storyIds: [15, 9, 26] // Cost Optimization, Security Assessment, Compliance & Audit
+    },
+    {
+      id: "people-culture",
+      name: "People & Culture",
+      icon: Activity,
+      storyIds: [11, 2] // Employee Satisfaction, Team Activity
+    },
+    {
+      id: "analytics-insights",
+      name: "Analytics & Insights",
+      icon: TrendingUp,
+      storyIds: [1, 19] // Usage Forecast, Competitive Intelligence
+    }
+  ];
+
+  // Get stories for selected chapter
+  const selectedChapterData = chapters.find(c => c.id === selectedChapter);
+  const chapterStories = insights.filter(insight => selectedChapterData?.storyIds.includes(insight.id));
+
+  // Calculate total duration for selected chapter
+  const totalDuration = chapterStories.reduce((sum, insight) => sum + insight.duration, 0);
+
+  // Handle share functionality
+  const handleShare = useCallback((insightId: number) => {
+    const url = `${window.location.origin}/?insight=${insightId}`;
+    navigator.clipboard.writeText(url);
+    setShowCopiedToast(true);
+    setTimeout(() => setShowCopiedToast(false), 2000);
+  }, []);
+
+  // Auto-play timer effect
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+
+    if (isGlobalPlaying && currentPlayingId !== null) {
+      const currentInsight = insights.find(i => i.id === currentPlayingId);
+      if (!currentInsight) return;
+
+      interval = setInterval(() => {
+        setCardProgress(prev => {
+          const currentProgress = prev[currentPlayingId] || 0;
+          const increment = (100 / currentInsight.duration) / 10; // Update 10 times per second
+          const newProgress = currentProgress + increment;
+
+          if (newProgress >= 100) {
+            // Move to next card
+            const currentIndex = insights.findIndex(i => i.id === currentPlayingId);
+            const nextIndex = currentIndex + 1;
+
+            if (nextIndex < insights.length) {
+              setCurrentPlayingId(insights[nextIndex].id);
+              return { ...prev, [currentPlayingId]: 0 };
+            } else {
+              // End of playlist
+              setIsGlobalPlaying(false);
+              setCurrentPlayingId(null);
+              setElapsedTime(0);
+              return { ...prev, [currentPlayingId]: 0 };
+            }
+          }
+
+          return { ...prev, [currentPlayingId]: newProgress };
+        });
+
+        // Update elapsed time
+        setElapsedTime(prev => prev + 0.1);
+      }, 100);
+    } else {
+      setElapsedTime(0);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isGlobalPlaying, currentPlayingId, insights]);
+
+  // Calculate time remaining
+  useEffect(() => {
+    if (isGlobalPlaying && currentPlayingId !== null) {
+      const currentIndex = insights.findIndex(i => i.id === currentPlayingId);
+      const currentProgress = cardProgress[currentPlayingId] || 0;
+      const currentInsight = insights[currentIndex];
+
+      // Time remaining on current card
+      const currentCardTimeLeft = currentInsight.duration * (1 - currentProgress / 100);
+
+      // Time for remaining cards
+      const remainingCardsTime = insights
+        .slice(currentIndex + 1)
+        .reduce((sum, insight) => sum + insight.duration, 0);
+
+      setTimeRemaining(Math.ceil(currentCardTimeLeft + remainingCardsTime));
+    } else {
+      setTimeRemaining(totalDuration);
+    }
+  }, [isGlobalPlaying, currentPlayingId, cardProgress, insights, totalDuration]);
+
+  // Global play/pause handler
+  const handleGlobalPlayPause = () => {
+    if (isGlobalPlaying) {
+      setIsGlobalPlaying(false);
+    } else {
+      setIsGlobalPlaying(true);
+      setElapsedTime(0);
+      if (currentPlayingId === null) {
+        setCurrentPlayingId(insights[0].id);
+        setCardProgress({});
+      }
+    }
+  };
+
+  // Individual card play handler
+  const handleCardPlay = (insightId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCurrentPlayingId(insightId);
+    setIsGlobalPlaying(true);
+  };
+
+  // Format time as MM:SS
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Format relative time (e.g., "2 hours ago", "3 days ago")
+  const formatRelativeTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 60) return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+    if (diffDays < 7) return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  // Handle update request
+  const handleUpdateRequest = (insightId: number) => {
+    console.log(`Update requested for insight ${insightId}`);
+    // Add your update logic here
+  };
+
+  return (
+    <div className="min-h-screen bg-neutral-950 text-white p-4 flex gap-4">
+      {/* Left Sidebar - Chapters Card */}
+      <Card className="w-72 bg-neutral-900 border-neutral-800 flex flex-col overflow-hidden">
+        {/* Sidebar Header */}
+        <div className="p-6 border-b border-neutral-800">
+          <h1 className="text-xl font-bold text-white">Acme Company Stories</h1>
+          <p className="text-xs text-neutral-400 mt-1">{insights.length} total stories</p>
+        </div>
+
+        {/* Chapters List */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-1">
+          {chapters.map((chapter) => {
+            const ChapterIcon = chapter.icon;
+            const isActive = selectedChapter === chapter.id;
+            const storyCount = chapter.storyIds.length;
+
+            return (
+              <button
+                key={chapter.id}
+                onClick={() => {
+                  setSelectedChapter(chapter.id);
+                  setIsGlobalPlaying(false);
+                  setCurrentPlayingId(null);
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-md transition-colors ${
+                  isActive
+                    ? 'bg-neutral-800 text-white'
+                    : 'text-neutral-400 hover:text-white hover:bg-neutral-900'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <ChapterIcon className="h-5 w-5" />
+                  <span className="text-sm font-medium">{chapter.name}</span>
+                </div>
+                <span className="text-xs text-neutral-500 font-semibold">{storyCount}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* New Story Button */}
+        <div className="p-4 border-t border-neutral-800">
+          <Button className="w-full bg-[#ECBE43] hover:bg-[#C9A035] text-gray-900 font-semibold">
+            + New Story
+          </Button>
+        </div>
+      </Card>
+
+      {/* Main Content Area Card */}
+      <Card className={`flex-1 bg-neutral-900 border-neutral-800 flex flex-col overflow-hidden ${!isRightPanelOpen && selectedInsight ? 'mr-0' : ''}`}>
+        {/* Header with Chapter Title and Play Button */}
+        <div className="bg-gradient-to-b from-neutral-800 to-neutral-900 p-6 border-b border-neutral-800">
+          <div className="flex items-center gap-6">
+            {/* Large Play Button */}
+            <Button
+              size="icon"
+              onClick={handleGlobalPlayPause}
+              className="h-16 w-16 rounded-full bg-[#ECBE43] hover:bg-[#C9A035] hover:scale-105 transition-transform"
+            >
+              {isGlobalPlaying ? (
+                <Pause className="h-7 w-7 text-gray-900" />
+              ) : (
+                <Play className="h-7 w-7 text-gray-900 ml-1" />
+              )}
+            </Button>
+
+            {/* Chapter Info */}
+            <div className="flex-1">
+              <p className="text-xs text-neutral-400 uppercase tracking-wider mb-1">Chapter</p>
+              <h2 className="text-3xl font-bold text-white">{selectedChapterData?.name}</h2>
+              <p className="text-sm text-neutral-400 mt-2">
+                {chapterStories.length} stories • {formatTime(totalDuration)} total
+              </p>
+            </div>
+
+            {/* Toggle Right Panel Button */}
+            {selectedInsight && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
+                className="text-neutral-400 hover:text-white"
+              >
+                {isRightPanelOpen ? (
+                  <>
+                    <X className="h-4 w-4 mr-2" />
+                    Hide Details
+                  </>
+                ) : (
+                  <>
+                    <Activity className="h-4 w-4 mr-2" />
+                    Show Details
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Stories List/Table */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="px-6 py-4">
+            {/* Table Header */}
+            <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-4 px-4 py-2 text-xs text-neutral-400 uppercase tracking-wider border-b border-neutral-800 mb-2">
+              <div className="w-8">#</div>
+              <div>Title</div>
+              <div className="w-24">Plays</div>
+              <div className="w-20">Duration</div>
+              <div className="w-24">Last Updated</div>
+              <div className="w-20"></div>
+            </div>
+
+            {/* Story Rows */}
+            <div className="space-y-1">
+              {chapterStories.map((insight, index) => {
+                const isCurrentlyPlaying = currentPlayingId === insight.id && isGlobalPlaying;
+                const progress = cardProgress[insight.id] || 0;
+
+                return (
+                  <div
+                    key={insight.id}
+                    onClick={() => setSelectedInsight(insight)}
+                    className="group grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-4 px-4 py-3 rounded-md hover:bg-neutral-800/50 transition-colors cursor-pointer items-center"
+                  >
+                    {/* Row Number */}
+                    <div className="w-8 text-neutral-400 text-sm font-medium">
+                      {index + 1}
+                    </div>
+
+                    {/* Title and Owner */}
+                    <div className="flex flex-col gap-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-white truncate">{insight.title}</span>
+
+                        {/* Schedule Icon with Tooltip */}
+                        {insight.schedule?.enabled && (
+                          <div className="relative group/schedule">
+                            <Clock className="h-3.5 w-3.5 text-neutral-500 shrink-0 cursor-help" />
+                            <div className="absolute left-0 top-6 z-[9999] hidden group-hover/schedule:block">
+                              <div className="bg-neutral-950 border border-neutral-700 text-white text-xs rounded-lg p-3 shadow-2xl w-64">
+                                <div className="space-y-2">
+                                  <div className="font-medium text-[#ECBE43]">Scheduled Delivery</div>
+                                  <div className="text-neutral-300">{insight.schedule.frequency}</div>
+                                  <div className="flex flex-wrap gap-1.5 mt-2">
+                                    {insight.schedule.channels.includes("slack") && insight.schedule.slackChannel && (
+                                      <div className="flex items-center gap-1 px-2 py-1 bg-neutral-800 rounded text-xs">
+                                        <MessageSquare className="h-3 w-3" />
+                                        <span>{insight.schedule.slackChannel}</span>
+                                      </div>
+                                    )}
+                                    {insight.schedule.channels.includes("email") && (
+                                      <div className="flex items-center gap-1 px-2 py-1 bg-neutral-800 rounded text-xs">
+                                        <Mail className="h-3 w-3" />
+                                        <span>Email</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Last Updated Icon with Tooltip */}
+                        <div className="relative group/update">
+                          <RefreshCw className="h-3.5 w-3.5 text-neutral-500 shrink-0 cursor-help" />
+                          <div className="absolute left-0 top-6 z-[9999] hidden group-hover/update:block">
+                            <div className="bg-neutral-950 border border-neutral-700 text-white text-xs rounded-lg p-3 shadow-2xl w-48">
+                              <div className="space-y-2">
+                                <div className="font-medium text-[#ECBE43]">Last Updated</div>
+                                <div className="text-neutral-300">{formatRelativeTime(insight.lastUpdated)}</div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleUpdateRequest(insight.id);
+                                  }}
+                                  className="w-full mt-2 px-2 py-1.5 bg-[#ECBE43] hover:bg-[#C9A035] text-gray-900 rounded text-xs font-medium transition-colors"
+                                >
+                                  Request Update
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <span className="text-xs text-neutral-400">{insight.owner.name}</span>
+                    </div>
+
+                    {/* Times Played */}
+                    <div className="w-24 text-sm text-neutral-300 tabular-nums">
+                      {insight.timesPlayed.toLocaleString()}
+                    </div>
+
+                    {/* Duration */}
+                    <div className="w-20 text-sm text-neutral-300 tabular-nums">
+                      {formatTime(insight.duration)}
+                    </div>
+
+                    {/* Last Updated */}
+                    <div className="w-24 text-xs text-neutral-400">
+                      {formatRelativeTime(insight.lastUpdated)}
+                    </div>
+
+                    {/* Actions */}
+                    <div className="w-20 flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isCurrentlyPlaying) {
+                            setIsGlobalPlaying(false);
+                          } else {
+                            handleCardPlay(insight.id, e);
+                          }
+                        }}
+                        className="p-1.5 hover:bg-neutral-700 rounded-full transition-colors"
+                      >
+                        {isCurrentlyPlaying ? (
+                          <Pause className="h-4 w-4 text-white" />
+                        ) : (
+                          <Play className="h-4 w-4 text-white" />
+                        )}
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleShare(insight.id);
+                        }}
+                        className="p-1.5 hover:bg-neutral-700 rounded-full transition-colors"
+                      >
+                        <Share2 className="h-3.5 w-3.5 text-neutral-400" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Right Detail Panel Card - Toggleable */}
+      {selectedInsight && isRightPanelOpen && (
+        <Card className="w-[400px] bg-neutral-900 border-neutral-800 flex flex-col overflow-hidden">
+          {/* Panel Header */}
+          <div className="flex flex-row justify-between items-center px-6 py-5 border-b border-neutral-800 bg-neutral-950/50 backdrop-blur-sm sticky top-0 z-10">
+            <div className="flex items-center space-x-3">
+              {selectedInsight.icon && <selectedInsight.icon className="h-5 w-5 text-[#ECBE43]" />}
+              <h3 className="text-lg font-semibold text-white">{selectedInsight.title}</h3>
+            </div>
+
+            <button
+              onClick={() => setSelectedInsight(null)}
+              className="p-2 hover:bg-neutral-800 rounded-full transition-colors"
+            >
+              <X className="h-5 w-5 text-neutral-400" />
+            </button>
+          </div>
+
+          {/* Panel Content */}
+          <div className="p-6 overflow-y-auto flex-1">
+            <div className="space-y-6">
+              {/* Owner and Schedule Info */}
+              <div className="flex items-start justify-between pb-4 border-b border-neutral-800 gap-6">
+                <div className="flex items-center gap-2 text-sm text-neutral-300">
+                  <User className="h-4 w-4 text-neutral-500" />
+                  <span className="font-medium text-white">{selectedInsight.owner.name}</span>
+                  {selectedInsight.owner.email && (
+                    <span className="text-neutral-400">• {selectedInsight.owner.email}</span>
+                  )}
+                </div>
+
+                {/* Schedule Information - Inline */}
+                {selectedInsight.schedule?.enabled && (
+                  <div className="flex items-start gap-2 text-xs">
+                    <Clock className="h-4 w-4 text-[#ECBE43] mt-0.5 shrink-0" />
+                    <div className="space-y-1.5">
+                      <div className="text-neutral-400 whitespace-nowrap">
+                        {selectedInsight.schedule.frequency}
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {selectedInsight.schedule.channels.includes("slack") && selectedInsight.schedule.slackChannel && (
+                          <div className="flex items-center gap-1 px-2 py-0.5 bg-neutral-800 rounded text-neutral-300">
+                            <MessageSquare className="h-3 w-3 text-[#ECBE43]" />
+                            <span>{selectedInsight.schedule.slackChannel}</span>
+                          </div>
+                        )}
+                        {selectedInsight.schedule.channels.includes("email") && (
+                          <div className="flex items-center gap-1 px-2 py-0.5 bg-neutral-800 rounded text-neutral-300">
+                            <Mail className="h-3 w-3 text-[#ECBE43]" />
+                            <span>Email</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Main content */}
+              <p className="text-sm leading-relaxed whitespace-pre-wrap text-neutral-300">
+                {selectedInsight.details}
+              </p>
+
+              {/* Inline chart */}
+              <div className="bg-neutral-950/50 p-6 rounded-lg border border-neutral-800 flex flex-col items-center">
+                <h2 className="text-xs text-neutral-400 mb-4 font-medium uppercase tracking-wider w-full text-center">Trend Overview</h2>
+                <div className="w-full max-w-xl">
+                  <ResponsiveContainer width="100%" height={300}>
+                    <AreaChart data={selectedInsight.data}>
+                      <defs>
+                        <linearGradient id="gradient-modal" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#ECBE43" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#ECBE43" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" opacity={0.3} vertical={false} />
+                      <XAxis
+                        dataKey="day"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: '#999', fontSize: 12 }}
+                        dy={10}
+                      />
+                      <YAxis
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: '#999', fontSize: 12 }}
+                        dx={-10}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#fff',
+                          border: 'none',
+                          borderRadius: '8px',
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                        }}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="#ECBE43"
+                        strokeWidth={3}
+                        fill="url(#gradient-modal)"
+                        dot={false}
+                        activeDot={{ r: 6, fill: '#C9A035', stroke: '#fff', strokeWidth: 2 }}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Key metrics */}
+              <div className="divide-y divide-neutral-800 text-sm border border-neutral-800 rounded-lg p-4 bg-neutral-950/30">
+                {selectedInsight.metrics.map((metric, i) => (
+                  <div key={i} className="flex justify-between py-3">
+                    <span className="text-neutral-400">{metric.label}</span>
+                    <span className="font-medium text-white">{metric.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Toast Notification */}
+      {showCopiedToast && (
+        <div className="fixed bottom-8 right-8 bg-[#ECBE43] text-gray-900 px-6 py-3 rounded-lg shadow-lg font-medium z-[100]">
+          Link copied to clipboard!
+        </div>
+      )}
+    </div>
+  );
+}
