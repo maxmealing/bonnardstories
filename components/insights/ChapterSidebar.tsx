@@ -1,7 +1,7 @@
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Chapter } from "@/types/insights";
-import { BarChart3, Users, Settings, Coins } from "lucide-react";
+import { BarChart3, Users, Settings, Coins, Home } from "lucide-react";
 
 interface ChapterSidebarProps {
   chapters: Chapter[];
@@ -21,8 +21,11 @@ export function ChapterSidebar({
   return (
     <Card className="w-72 bg-neutral-900 border-neutral-800 flex flex-col h-full overflow-hidden p-0 gap-0">
       {/* Sidebar Header */}
-      <div className="px-4 py-3 border-b border-neutral-800 flex-shrink-0">
+      <div className="px-4 py-3 border-b border-neutral-800 flex-shrink-0 flex items-center justify-between">
         <h1 className="text-base font-bold text-white">Acme Company Stories</h1>
+        <button className="p-1.5 hover:bg-neutral-800 rounded transition-colors">
+          <Home className="h-4 w-4 text-neutral-400 hover:text-white" />
+        </button>
       </div>
 
       {/* Credits/Plan Section */}
